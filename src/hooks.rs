@@ -33,7 +33,10 @@ fn managed(entry: &Value) -> bool {
             hooks.iter().any(|hook| {
                 hook.get("command")
                     .and_then(Value::as_str)
-                    .is_some_and(|command| command.contains(MARKER))
+                    .is_some_and(|command| {
+                        command.contains(MARKER)
+                            || command.contains("/herdr/scripts/herdr-session-title ")
+                    })
             })
         })
 }
@@ -182,5 +185,24 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("'/tmp/new binary' hook codex"));
+    }
+
+    #[test]
+    fn replaces_legacy_python_hook() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{"hooks":{"Stop":[{"hooks":[{"command":"python3 /home/me/.config/herdr/scripts/herdr-session-title codex"}]}]}}"#,
+        )
+        .unwrap();
+        update(&path, "codex", Some(Path::new("/tmp/plugin"))).unwrap();
+        let value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        let stop = value["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop.len(), 1);
+        assert!(stop[0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(MARKER));
     }
 }
