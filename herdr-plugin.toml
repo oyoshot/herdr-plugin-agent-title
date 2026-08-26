@@ -11,3 +11,12 @@ command = ["cargo", "build", "--release"]
 [[build]]
 command = ["target/release/herdr-plugin-agent-title", "install-hooks"]
 
+[[actions]]
+id = "hook-codex"
+title = "Publish Codex session title"
+command = ["target/release/herdr-plugin-agent-title", "hook", "codex"]
+
+[[actions]]
+id = "hook-claude"
+title = "Publish Claude session title"
+command = ["target/release/herdr-plugin-agent-title", "hook", "claude"]

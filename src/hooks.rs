@@ -21,10 +21,6 @@ fn homes() -> (PathBuf, PathBuf) {
     (codex, claude)
 }
 
-fn shell_quote(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
-}
-
 fn managed(entry: &Value) -> bool {
     entry
         .get("hooks")
@@ -41,11 +37,7 @@ fn managed(entry: &Value) -> bool {
         })
 }
 
-fn update(
-    path: &Path,
-    agent: &str,
-    executable: Option<&Path>,
-) -> Result<bool, Box<dyn std::error::Error>> {
+fn update(path: &Path, agent: &str, install: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let mut root = if path.exists() {
         serde_json::from_slice::<Value>(&fs::read(path)?)?
     } else {
@@ -60,8 +52,11 @@ fn update(
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or("hooks must be an object")?;
-    let command =
-        executable.map(|binary| format!("{} hook {} # {}", shell_quote(binary), agent, MARKER));
+    let command = install.then(|| {
+        format!(
+            "\"${{HERDR_BIN_PATH:-herdr}}\" plugin action invoke hook-{agent} --plugin herdr-plugin-agent-title # {MARKER}"
+        )
+    });
     for event in EVENTS {
         let entries = hooks
             .entry(event)
@@ -123,18 +118,17 @@ fn tempfile_path(parent: &Path, _name: &str) -> PathBuf {
 }
 
 pub fn install() -> Result<(), Box<dyn std::error::Error>> {
-    let executable = env::current_exe()?.canonicalize()?;
     let (codex, claude) = homes();
-    update(&codex.join("hooks.json"), "codex", Some(&executable))?;
-    update(&claude.join("settings.json"), "claude", Some(&executable))?;
+    update(&codex.join("hooks.json"), "codex", true)?;
+    update(&claude.join("settings.json"), "claude", true)?;
     println!("installed Codex and Claude title hooks");
     Ok(())
 }
 
 pub fn uninstall() -> Result<(), Box<dyn std::error::Error>> {
     let (codex, claude) = homes();
-    update(&codex.join("hooks.json"), "codex", None)?;
-    update(&claude.join("settings.json"), "claude", None)?;
+    update(&codex.join("hooks.json"), "codex", false)?;
+    update(&claude.join("settings.json"), "claude", false)?;
     println!("removed Codex and Claude title hooks");
     Ok(())
 }
@@ -176,7 +170,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("settings.json");
         fs::write(&path, r#"{"hooks":{"Stop":[{"hooks":[{"command":"keep"}]},{"hooks":[{"command":"old # herdr-plugin-agent-title-managed"}]}]}}"#).unwrap();
-        update(&path, "codex", Some(Path::new("/tmp/new binary"))).unwrap();
+        update(&path, "codex", true).unwrap();
         let value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         let stop = value["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop.len(), 2);
@@ -184,7 +178,7 @@ mod tests {
         assert!(stop[1]["hooks"][0]["command"]
             .as_str()
             .unwrap()
-            .contains("'/tmp/new binary' hook codex"));
+            .contains("plugin action invoke hook-codex"));
     }
 
     #[test]
@@ -196,7 +190,7 @@ mod tests {
             r#"{"hooks":{"Stop":[{"hooks":[{"command":"python3 /home/me/.config/herdr/scripts/herdr-session-title codex"}]}]}}"#,
         )
         .unwrap();
-        update(&path, "codex", Some(Path::new("/tmp/plugin"))).unwrap();
+        update(&path, "codex", true).unwrap();
         let value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         let stop = value["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop.len(), 1);
