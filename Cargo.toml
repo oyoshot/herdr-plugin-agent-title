@@ -1,0 +1,20 @@
+[package]
+name = "herdr-plugin-agent-title"
+version = "0.1.0"
+edition = "2021"
+description = "Publishes native Codex and Claude session titles to Herdr"
+license = "MIT"
+repository = "https://github.com/oyoshot/herdr-plugin-agent-title"
+
+[dependencies]
+glob = "0.3"
+rusqlite = "0.37"
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+strip = true
+

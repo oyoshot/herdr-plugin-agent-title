@@ -1,0 +1,13 @@
+id = "herdr-plugin-agent-title"
+name = "Herdr Agent Title"
+version = "0.1.0"
+min_herdr_version = "0.7.4"
+description = "Publishes native Codex and Claude session titles as Herdr pane metadata."
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[build]]
+command = ["target/release/herdr-plugin-agent-title", "install-hooks"]
+
