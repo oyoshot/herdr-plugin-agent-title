@@ -21,6 +21,18 @@ fn homes() -> (PathBuf, PathBuf) {
     (codex, claude)
 }
 
+fn stable_binary() -> PathBuf {
+    let home = env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/share"))
+        .join("herdr/bin/herdr-plugin-agent-title")
+}
+
+fn shell_quote(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+}
+
 fn managed(entry: &Value) -> bool {
     entry
         .get("hooks")
@@ -37,7 +49,11 @@ fn managed(entry: &Value) -> bool {
         })
 }
 
-fn update(path: &Path, agent: &str, install: bool) -> Result<bool, Box<dyn std::error::Error>> {
+fn update(
+    path: &Path,
+    agent: &str,
+    executable: Option<&Path>,
+) -> Result<bool, Box<dyn std::error::Error>> {
     let mut root = if path.exists() {
         serde_json::from_slice::<Value>(&fs::read(path)?)?
     } else {
@@ -52,11 +68,8 @@ fn update(path: &Path, agent: &str, install: bool) -> Result<bool, Box<dyn std::
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or("hooks must be an object")?;
-    let command = install.then(|| {
-        format!(
-            "\"${{HERDR_BIN_PATH:-herdr}}\" plugin action invoke hook-{agent} --plugin herdr-plugin-agent-title # {MARKER}"
-        )
-    });
+    let command =
+        executable.map(|binary| format!("{} hook {} # {}", shell_quote(binary), agent, MARKER));
     for event in EVENTS {
         let entries = hooks
             .entry(event)
@@ -118,17 +131,30 @@ fn tempfile_path(parent: &Path, _name: &str) -> PathBuf {
 }
 
 pub fn install() -> Result<(), Box<dyn std::error::Error>> {
+    let source = env::current_exe()?.canonicalize()?;
+    let executable = stable_binary();
+    let parent = executable.parent().ok_or("binary path has no parent")?;
+    fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(
+        ".herdr-plugin-agent-title.{}.tmp",
+        std::process::id()
+    ));
+    fs::copy(source, &temporary)?;
+    fs::rename(temporary, &executable)?;
     let (codex, claude) = homes();
-    update(&codex.join("hooks.json"), "codex", true)?;
-    update(&claude.join("settings.json"), "claude", true)?;
+    update(&codex.join("hooks.json"), "codex", Some(&executable))?;
+    update(&claude.join("settings.json"), "claude", Some(&executable))?;
     println!("installed Codex and Claude title hooks");
     Ok(())
 }
 
 pub fn uninstall() -> Result<(), Box<dyn std::error::Error>> {
     let (codex, claude) = homes();
-    update(&codex.join("hooks.json"), "codex", false)?;
-    update(&claude.join("settings.json"), "claude", false)?;
+    update(&codex.join("hooks.json"), "codex", None)?;
+    update(&claude.join("settings.json"), "claude", None)?;
+    if stable_binary().exists() {
+        fs::remove_file(stable_binary())?;
+    }
     println!("removed Codex and Claude title hooks");
     Ok(())
 }
@@ -170,7 +196,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("settings.json");
         fs::write(&path, r#"{"hooks":{"Stop":[{"hooks":[{"command":"keep"}]},{"hooks":[{"command":"old # herdr-plugin-agent-title-managed"}]}]}}"#).unwrap();
-        update(&path, "codex", true).unwrap();
+        update(&path, "codex", Some(Path::new("/tmp/new binary"))).unwrap();
         let value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         let stop = value["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop.len(), 2);
@@ -178,7 +204,7 @@ mod tests {
         assert!(stop[1]["hooks"][0]["command"]
             .as_str()
             .unwrap()
-            .contains("plugin action invoke hook-codex"));
+            .contains("'/tmp/new binary' hook codex"));
     }
 
     #[test]
@@ -190,7 +216,7 @@ mod tests {
             r#"{"hooks":{"Stop":[{"hooks":[{"command":"python3 /home/me/.config/herdr/scripts/herdr-session-title codex"}]}]}}"#,
         )
         .unwrap();
-        update(&path, "codex", true).unwrap();
+        update(&path, "codex", Some(Path::new("/tmp/plugin"))).unwrap();
         let value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
         let stop = value["hooks"]["Stop"].as_array().unwrap();
         assert_eq!(stop.len(), 1);

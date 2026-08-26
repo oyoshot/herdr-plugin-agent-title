@@ -13,9 +13,9 @@ herdr integration install claude
 ```
 
 Plugin installation builds the Rust binary and registers managed hooks in
-Codex and Claude Code. The hooks invoke stable Herdr plugin actions, so managed
-checkout replacement does not leave stale executable paths. Existing unrelated
-hooks are preserved.
+Codex and Claude Code. It copies the hook runner to the stable
+`$XDG_DATA_HOME/herdr/bin` location, so managed checkout replacement does not
+leave stale executable paths. Existing unrelated hooks are preserved.
 
 ## Commands
 
